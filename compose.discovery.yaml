@@ -1,0 +1,8 @@
+# Optional: cp discovery_sources.example.json discovery_sources.json before use.
+# docker compose -f compose.yaml -f compose.discovery.yaml up -d --build backend
+services:
+  backend:
+    environment:
+      DISCOVERY_CONFIG_FILE: /app/discovery_sources.json
+    volumes:
+      - ./discovery_sources.json:/app/discovery_sources.json:ro

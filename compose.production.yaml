@@ -1,0 +1,90 @@
+# Standalone production stack. Never combine with the local development compose.yaml.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_DB: jobhunter
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a generated private database password}
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    networks: [private]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d jobhunter"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 1g
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+  backend:
+    build: .
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://app:${POSTGRES_PASSWORD:?Set database password}@db:5432/jobhunter
+      STORAGE_DIR: /app/storage
+      DISCOVERY_CONFIG_FILE: /app/discovery_sources.json
+      REQUIRE_EMAIL_VERIFICATION: "true"
+      ALLOW_API_KEY_AUTH: "false"
+      ALLOW_ADMIN_BOOTSTRAP: "false"
+    stop_grace_period: 60s
+    command: ["sh", "-c", ".venv/bin/alembic upgrade head && exec .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --limit-concurrency 25 --timeout-keep-alive 5 --no-access-log --no-proxy-headers"]
+    volumes:
+      - resume_data:/app/storage
+      - ./discovery_sources.json:/app/discovery_sources.json:ro
+    networks: [private, outgoing]
+    depends_on: {db: {condition: service_healthy}}
+    healthcheck:
+      test: ["CMD", ".venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    mem_limit: 2g
+    pids_limit: 256
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+  dashboard:
+    build: ./dashboard
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+      DASHBOARD_ORIGIN: https://${APP_DOMAIN:?Set public domain}
+      GATEWAY_TOKEN: ${GATEWAY_TOKEN:?Set a generated private gateway secret}
+    networks: [private]
+    depends_on: {backend: {condition: service_healthy}}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/session').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    mem_limit: 1g
+    pids_limit: 128
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+  gateway:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set public domain}
+      ACME_EMAIL: ${ACME_EMAIL:?Set certificate contact email}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [private, outgoing]
+    depends_on: {dashboard: {condition: service_healthy}}
+    mem_limit: 256m
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+networks:
+  private: {internal: true}
+  outgoing: {}
+volumes:
+  postgres_data:
+  resume_data:
+  caddy_data:
+  caddy_config:

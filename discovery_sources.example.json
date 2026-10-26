@@ -1,0 +1,43 @@
+[
+  {
+    "name": "mock",
+    "kind": "mock"
+  },
+  {
+    "name": "employer-greenhouse",
+    "kind": "greenhouse",
+    "enabled": false,
+    "company": "Replace with employer name",
+    "board": "replace-board-token"
+  },
+  {
+    "name": "employer-lever",
+    "kind": "lever",
+    "enabled": false,
+    "company": "Replace with employer name",
+    "board": "replace-site-name",
+    "region": "global"
+  },
+  {
+    "name": "employer-careers",
+    "kind": "career_page",
+    "enabled": false,
+    "url": "https://example.com/careers",
+    "permitted": true
+  },
+  {
+    "name": "linkedin-search",
+    "kind": "brave",
+    "enabled": false
+  },
+  {
+    "name": "gmail-alerts",
+    "kind": "gmail",
+    "enabled": false
+  },
+  {
+    "name": "linkedin-tavily",
+    "kind": "tavily",
+    "enabled": false
+  }
+]

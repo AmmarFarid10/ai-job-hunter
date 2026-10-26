@@ -1,0 +1,54 @@
+name: CI
+on: [push, pull_request]
+permissions: {contents: read}
+concurrency: {group: "ci-${{ github.ref }}", cancel-in-progress: true}
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: {POSTGRES_USER: test, POSTGRES_PASSWORD: test, POSTGRES_DB: job_hunter_test}
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U test" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      API_KEY: ci-fixture-maintenance-key-at-least-32-characters
+      DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/job_hunter_test
+      TEST_DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/job_hunter_test
+      SCHEDULER_ENABLED: "false"
+      ENVIRONMENT: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install uv
+      - run: uv sync --frozen --extra dev
+      - run: uv run ruff check .
+      - run: uv run mypy app
+      - run: uv run alembic upgrade head
+      - run: uv run alembic check
+      - run: uv run pytest -q
+      - run: uv run python scripts/release_bundle.py --check
+      - run: uv export --frozen --no-dev --no-emit-project --format requirements-txt --no-hashes --output-file /tmp/runtime-requirements.txt
+      - run: uv tool run pip-audit -r /tmp/runtime-requirements.txt --no-deps --disable-pip
+      - uses: actions/setup-node@v4
+        with: {node-version: "22"}
+      - run: npm --prefix dashboard ci
+      - run: npm --prefix dashboard run build
+      - run: cd dashboard && npx playwright install --with-deps chromium
+      - run: bash scripts/run_browser_qa.sh
+        env: {BROWSER_CHANNEL: chromium}
+
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults: {run: {working-directory: dashboard}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: "22", cache: npm, cache-dependency-path: dashboard/package-lock.json}
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
